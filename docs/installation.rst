@@ -10,4 +10,5 @@ We don't have this on PyPI yet, so for now please install from source:
 
     $ git clone https://github.com/AllenInstitute/ipfx.git
     $ pip install ipfx/
+    $ pip install -r requirements.txt
 
