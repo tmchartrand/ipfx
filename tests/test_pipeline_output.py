@@ -16,6 +16,7 @@ test_specimens = pd.read_csv(TEST_SPECIMENS_FILE, sep=" ")
 test_specimens_params = [tuple(sp) for sp in test_specimens.values]
 
 
+@pytest.mark.regression
 @pytest.mark.parametrize('input_json,output_json', test_specimens_params)
 def test_pipeline_output(input_json, output_json, tmpdir_factory):
     """
@@ -35,7 +36,7 @@ def test_pipeline_output(input_json, output_json, tmpdir_factory):
     print(input_json, output_json)
 
     pipeline_input = ju.read(input_json)
-    test_dir = str(tmpdir_factory.mktemp("test"))
+    test_dir = str(tmpdir_factory.mktemp("test_specimens"))
 
     pipeline_input["output_nwb_file"] = os.path.join(test_dir, "output.nwb")  # Modify path for the test output
     pipeline_input["qc_figs_dir"] = os.path.join(test_dir, "qc_figs")
