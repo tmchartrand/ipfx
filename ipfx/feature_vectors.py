@@ -1,3 +1,9 @@
+from __future__ import division
+from __future__ import print_function
+from __future__ import absolute_import
+from builtins import zip
+from builtins import range
+from past.utils import old_div
 import numpy as np
 import logging
 import pandas as pd
@@ -6,7 +12,7 @@ from . import stim_features as stf
 from . import data_set_features as dsf
 from . import stimulus_protocol_analysis as spa
 from . import time_series_utils as tsu
-import error as er
+from . import error as er
 
 
 def extract_feature_vectors(data_set,
@@ -153,6 +159,7 @@ def feature_vectors(lsq_sweeps, ssq_sweeps, ramp_sweeps,
     result = {}
     result["step_subthresh"] = step_subthreshold(lsq_sweeps, lsq_features, lsq_start, lsq_end)
     result["subthresh_norm"] = subthresh_norm(lsq_sweeps, lsq_features, lsq_start, lsq_end)
+    result["subthresh_depol_norm"] = subthresh_depol_norm(lsq_sweeps, lsq_features, lsq_start, lsq_end)
     result["isi_shape"] = isi_shape(lsq_sweeps, lsq_features)
     result["first_ap"] = first_ap_features(lsq_sweeps, ssq_sweeps, ramp_sweeps,
                                            lsq_features, ssq_features, ramp_features,
@@ -191,12 +198,12 @@ def step_subthreshold(sweep_set, features, start, end,
     for amp, swp in zip(subthresh_amps, subthresh_sweeps):
         start_index = tsu.find_time_index(swp.t, start - extend_duration)
         delta_t = swp.t[1] - swp.t[0]
-        subsample_width = int(np.round(subsample_interval / delta_t))
+        subsample_width = int(np.round(old_div(subsample_interval, delta_t)))
         end_index = tsu.find_time_index(swp.t, end + extend_duration)
         subsampled_v = subsample_average(swp.v[start_index:end_index], subsample_width)
         subthresh_data[amp] = subsampled_v
 
-    extend_length = int(np.round(extend_duration / subsample_interval))
+    extend_length = int(np.round(old_div(extend_duration, subsample_interval)))
     use_amps = np.arange(low_amp, high_amp, amp_step)
     n_individual = len(subsampled_v)
     neighbor_amps = sorted([a for a in subthresh_amps if a >= low_amp and a <= high_amp])
@@ -222,17 +229,17 @@ def step_subthreshold(sweep_set, features, start, end,
             avg = np.zeros_like(subsampled_v)
             if lower_amp != 0 and upper_amp != 0:
                 avg = (subthresh_data[lower_amp] + subthresh_data[upper_amp]) / 2.
-                scale = amp / ((lower_amp + upper_amp) / 2.)
+                scale = old_div(amp, ((lower_amp + upper_amp) / 2.))
                 base_v = avg[:extend_length].mean()
                 avg[extend_length:-extend_length] = (avg[extend_length:-extend_length] - base_v) * scale + base_v
             elif lower_amp != 0:
                 avg = subthresh_data[lower_amp].copy()
-                scale = amp / lower_amp
+                scale = old_div(amp, lower_amp)
                 base_v = avg[:extend_length].mean()
                 avg[extend_length:] = (avg[extend_length:] - base_v) * scale + base_v
             elif upper_amp != 0:
                 avg = subthresh_data[upper_amp].copy()
-                scale = amp / upper_amp
+                scale = old_div(amp, upper_amp)
                 base_v = avg[:extend_length].mean()
                 avg[extend_length:] = (avg[extend_length:] - base_v) * scale + base_v
 
@@ -281,7 +288,51 @@ def subthresh_norm(sweep_set, features, start, end,
 
     start_index = tsu.find_time_index(swp.t, start - extend_duration)
     delta_t = swp.t[1] - swp.t[0]
-    subsample_width = int(np.round(subsample_interval / delta_t))
+    subsample_width = int(np.round(old_div(subsample_interval, delta_t)))
+    end_index = tsu.find_time_index(swp.t, end + extend_duration)
+    subsampled_v = subsample_average(swp.v[start_index:end_index], subsample_width)
+    subsampled_v -= base
+    subsampled_v /= delta
+
+    return subsampled_v
+
+
+def subthresh_depol_norm(sweep_set, features, start, end,
+    extend_duration=0.2, subsample_interval=0.01):
+    """ Largest positive-going subthreshold step response that does not evoke spikes,
+        normalized to baseline and peak deflection
+
+        Parameters
+        ----------
+        sweep_set : SweepSet
+        features : output of LongSquareAnalysis.analyze()
+        start : stimulus interval start (seconds)
+        end : stimulus interval end (seconds)
+        extend_duration: in seconds (default 0.2)
+        subsample_interval: in seconds (default 0.01)
+
+        Returns
+        -------
+        subsampled_v : subsampled, normalized voltage trace
+    """
+    print("in subthresh_depol_norm")
+    sweep_table = features["subthreshold_sweeps"]
+    amps = np.rint(sweep_table["stim_amp"].values)
+    if np.sum(amps > 0) == 0:
+        print("No subthreshold depolarizing sweeps found")
+        return None
+
+    subthresh_sweep_ind = sweep_table.index.tolist()
+    subthresh_sweeps = np.array(sweep_set.sweeps)[subthresh_sweep_ind]
+    max_sweep_ind = np.argmax(amps)
+    base = sweep_table.at[sweep_table.index[max_sweep_ind], "v_baseline"]
+    deflect_v, deflect_ind = sweep_table.at[sweep_table.index[max_sweep_ind], "peak_deflect"]
+    swp = subthresh_sweeps[max_sweep_ind]
+    delta = deflect_v - base
+
+    start_index = tsu.find_time_index(swp.t, start - extend_duration)
+    delta_t = swp.t[1] - swp.t[0]
+    subsample_width = int(np.round(old_div(subsample_interval, delta_t)))
     end_index = tsu.find_time_index(swp.t, end + extend_duration)
     subsampled_v = subsample_average(swp.v[start_index:end_index], subsample_width)
     subsampled_v -= base
@@ -338,7 +389,7 @@ def isi_shape(sweep_set, features, duration=1., n_points=100, min_spike=5):
         end_index = tsu.find_time_index(isi_sweep.t, isi_sweep.t[fast_trough_index] + 0.1)
         isi_raw = isi_sweep.v[fast_trough_index:end_index] - threshold_v
 
-        width = len(isi_raw) / n_points
+        width = old_div(len(isi_raw), n_points)
         isi_raw = isi_raw[:width * n_points] # ensure division will work
         isi_norm = subsample_average(isi_raw, width)
 
@@ -351,7 +402,7 @@ def isi_shape(sweep_set, features, duration=1., n_points=100, min_spike=5):
     isi_list = []
     for start_index, end_index, thresh_v in zip(fast_trough_indexes[:-1], threshold_indexes[1:], threshold_voltages[:-1]):
         isi_raw = isi_sweep.v[int(start_index):int(end_index)] - thresh_v
-        width = len(isi_raw) / n_points
+        width = old_div(len(isi_raw), n_points)
         if width == 0:
             # trace is shorter than 100 points - probably in a burst, so we'll skip
             continue
@@ -432,7 +483,7 @@ def first_ap_features(lsq_sweeps, ssq_sweeps, ramp_sweeps,
 
     # Downsample if necessary
     if sampling_rate > target_sampling_rate:
-        sampling_factor = sampling_rate / target_sampling_rate
+        sampling_factor = old_div(sampling_rate, target_sampling_rate)
         ap_long_square = subsample_average(ap_long_square, sampling_factor)
         ap_ramp = subsample_average(ap_ramp, sampling_factor)
         ap_short_square = subsample_average(ap_short_square, sampling_factor)
@@ -486,7 +537,7 @@ def noise_ap_features(noise_sweeps,
 
     grand_avg_ap = np.vstack(avg_ap_list).mean(axis=0)
     if sampling_rate > target_sampling_rate:
-        sampling_factor = sampling_rate / target_sampling_rate
+        sampling_factor = old_div(sampling_rate, target_sampling_rate)
         grand_avg_ap = subsample_average(grand_avg_ap, sampling_factor)
 
     return np.hstack([grand_avg_ap, np.diff(grand_avg_ap)])
@@ -540,7 +591,7 @@ def spiking_features(sweep_set, features, spike_extractor, start, end,
 
         thresh_t = spike_data[swp_ind]["threshold_t"]
         spike_count = np.ones_like(thresh_t)
-        bin_number = int(1. / 0.001) / rate_width + 1
+        bin_number = old_div(int(1. / 0.001), rate_width) + 1
         bins = np.linspace(start, end, bin_number)
         bin_width = bins[1] - bins[0]
         output = stats.binned_statistic(thresh_t,
@@ -552,7 +603,7 @@ def spiking_features(sweep_set, features, spike_extractor, start, end,
         rate_data[amp_level] = output
 
     # Combine all levels into single vector & imterpolate to fill missing sweeps
-    output_vector = combine_and_interpolate(rate_data, max_level=max_above_rheo / amp_interval)
+    output_vector = combine_and_interpolate(rate_data, max_level=old_div(max_above_rheo, amp_interval))
 
     # Instantaneous frequency
     feature_data = {}
@@ -580,13 +631,13 @@ def spiking_features(sweep_set, features, spike_extractor, start, end,
         for f, i1, i2 in zip(inst_freq, thresh_ind[:-1], thresh_ind[1:]):
             freq[i1:i2] = f
 
-        bin_number = int(1. / 0.001) / feature_width + 1
+        bin_number = old_div(int(1. / 0.001), feature_width) + 1
         bins = np.linspace(start, end, bin_number)
         output = stats.binned_statistic(t,
                                         freq,
                                         bins=bins)[0]
         feature_data[amp_level] = output
-    output_vector = np.append(output_vector, combine_and_interpolate(feature_data, max_level=max_above_rheo / amp_interval))
+    output_vector = np.append(output_vector, combine_and_interpolate(feature_data, max_level=old_div(max_above_rheo, amp_interval)))
 
     # Spike-level feature calculation
     for feature in spike_feature_list:
@@ -611,7 +662,7 @@ def spiking_features(sweep_set, features, spike_extractor, start, end,
                     thresh_t = thresh_t[mask]
                     feature_values = feature_values[mask]
 
-            bin_number = int(1. / 0.001) / feature_width + 1
+            bin_number = old_div(int(1. / 0.001), feature_width) + 1
             bins = np.linspace(start, end, bin_number)
 
             output = stats.binned_statistic(thresh_t,
