@@ -243,7 +243,10 @@ def step_subthreshold(sweep_set, features, start, end,
 
 def subsample_average(x, width):
     """Downsamples x by averaging `width` points"""
-
+    remainder = len(x) % width
+    if remainder != 0:
+        pad_length = width - remainder
+        x = np.hstack([x, pad_length*[np.nan]])
     avg = np.nanmean(x.reshape(-1, width), axis=1)
     return avg
 
