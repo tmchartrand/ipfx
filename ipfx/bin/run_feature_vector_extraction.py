@@ -1,7 +1,9 @@
 import numpy as np
+import pandas as pd
 import ipfx.feature_vectors as fv
 import argschema as ags
 import lims_queries as lq
+import lims_utils
 from ipfx.aibs_data_set import AibsDataSet
 import warnings
 import logging
@@ -24,13 +26,19 @@ class CollectFeatureVectorParameters(ags.ArgSchema):
 
 
 def categorize_iclamp_sweeps(data_set, stimuli_names, sweep_qc_option=None, specimen_id=None):
-    # TODO - deal with pass/fail status
-
     passed_sql = """
-    select swp.sweep_number from ephys_sweeps swp
-    where swp.specimen_id = %s
-    and swp.sweep_number = any(%s)
-    and swp.workflow_state like '%%passed'
+        select swp.sweep_number from ephys_sweeps swp
+        where swp.specimen_id = %s
+        and swp.sweep_number = any(%s)
+        and swp.workflow_state like '%%passed'
+    """
+    passed_except_delta_vm_sql = """
+        select swp.sweep_number, tag.name
+        from ephys_sweeps swp
+        join ephys_sweep_tags_ephys_sweeps estes on estes.ephys_sweep_id = swp.id
+        join ephys_sweep_tags tag on tag.id = estes.ephys_sweep_tag_id
+        where swp.specimen_id = %s
+        and swp.sweep_number = any(%s)
     """
 
     iclamp_st = data_set.filtered_sweep_table(clamp_mode=data_set.CURRENT_CLAMP, stimuli=stimuli_names)
@@ -39,28 +47,20 @@ def categorize_iclamp_sweeps(data_set, stimuli_names, sweep_qc_option=None, spec
         return iclamp_st["sweep_number"].sort_values().values
     elif sweep_qc_option == "passed_only":
         sweep_num_list = iclamp_st["sweep_number"].sort_values().tolist()
-        results = lq.query(passed_sql, (specimen_id, sweep_num_list))
+        results = lims_utils.query(passed_sql, (specimen_id, sweep_num_list))
         passed_sweep_nums = np.array([r[0] for r in results])
         return np.sort(passed_sweep_nums)
     elif sweep_qc_option == "passed_except_delta_vm":
         # get straight-up passed sweeps
         sweep_num_list = iclamp_st["sweep_number"].sort_values().tolist()
-        results = lq.query(passed_sql, (specimen_id, sweep_num_list))
+        results = lims_utils.query(passed_sql, (specimen_id, sweep_num_list))
         passed_sweep_nums = np.array([r[0] for r in results])
 
         # also get sweeps that only fail due to delta Vm
         failed_sweep_list = list(set(sweep_num_list) - set(passed_sweep_nums))
         if len(failed_sweep_list) == 0:
             return np.sort(passed_sweep_nums)
-        passed_except_delta_vm_sql = """
-            select swp.sweep_number, tag.name
-            from ephys_sweeps swp
-            join ephys_sweep_tags_ephys_sweeps estes on estes.ephys_sweep_id = swp.id
-            join ephys_sweep_tags tag on tag.id = estes.ephys_sweep_tag_id
-            where swp.specimen_id = %s
-            and swp.sweep_number = any(%s)
-        """
-        results = lq.query(passed_except_delta_vm_sql, (specimen_id, failed_sweep_list))
+        results = lims_utils.query(passed_except_delta_vm_sql, (specimen_id, failed_sweep_list))
         df = pd.DataFrame(results, columns=["sweep_number", "tag"])
 
         # not all cells have tagged QC status - if there are no tags assume the
@@ -78,7 +78,12 @@ def categorize_iclamp_sweeps(data_set, stimuli_names, sweep_qc_option=None, spec
 
 
 def data_for_specimen_id(specimen_id, sweep_qc_option, ap_window_length=0.005):
+    logging.debug("specimen_id: {}".format(specimen_id))
     name, roi_id, specimen_id = lq.get_specimen_info_from_lims_by_id(specimen_id)
+    if roi_id is None:
+        logging.debug("No ephys ROI result found for {:d}".format(specimen_id))
+        return {"error": {"type": "no_ephys_roi_result", "details": ""}}
+
     nwb_path = lq.get_nwb_path_from_lims(roi_id)
     if len(nwb_path) == 0: # could not find an NWB file
         logging.debug("No NWB file for {:d}".format(specimen_id))
