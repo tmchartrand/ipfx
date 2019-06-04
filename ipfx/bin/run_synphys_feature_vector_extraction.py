@@ -7,6 +7,7 @@ import argschema as ags
 import os
 import json
 import logging
+from collections import defaultdict
 
 
 class SynPhysFeatureVectorSchema(ags.ArgSchema):
@@ -34,27 +35,55 @@ class MPSweep(Sweep):
                        sampling_rate=srate,
                        sweep_number=sweep_num,
                        epochs=None)
+        self.select_epoch('stim')
+        self.duration = self.t[-1] - self.t[0]
+        self.select_epoch('sweep')
 
 
-def recs_to_sweeps(recs, min_pulse_dur=np.inf):
-    sweeps = []
-    for rec in recs:
-        # get square pulse start/stop times
-        pulse = rec.stimulus.items[3]  # this assumption is bound to fail sooner or later.
-        start = pulse.global_start_time
-        end = start + pulse.duration
+stim_list = [
+    'TargetV_DA_0',
+    'If_Curve_DA_0',
+    # 'Chirp_DA_0',
+    # 'TargetV_DA_0'
+]
 
-        # pulses may have different start times, so we shift time values to make all pulses start at t=0
-        rec['primary'].t0 = -start
-        # pulses may have different durations as well, so we just use the smallest duration
-        min_pulse_dur = min(min_pulse_dur, end-start)
+def sweeps_dict_from_cell(cell):
+    recordings = cell.electrode.recordings
+    sweeps_dict = {stim:list() for stim in stim_list}
+    for recording in recordings:
+        for name in stim_list:
+            if recording.patch_clamp_recording.stim_name == name:
+                sweeps_dict[name].append(recording.sync_rec.ext_id)
+    return sweeps_dict
 
-        sweep = MPSweep(rec)
-        sweeps.append(sweep)
-    return sweeps, min_pulse_dur
+def min_duration_of_sweeplist(sweep_list):
+    if len(sweep_list)==0:
+        return 0
+    else:
+        return min(mpsweep.duration for mpsweep in sweep_list)
 
+def run_mpa_cell(cell, output_dir):
+    # MiesNwb object
+    nwb = cell.experiment.data
+    channel = cell.electrode.device_id
+    sweeps_dict = sweeps_dict_from_cell(cell)
 
+    supra_sweep_ids = sweeps_dict['If_Curve_DA_0']
+    sub_sweep_ids = sweeps_dict['TargetV_DA_0']
+    lsq_supra_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in supra_sweep_ids]
+    lsq_sub_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in sub_sweep_ids]
 
+    lsq_supra_sweeps = SweepSet(lsq_supra_sweep_list)
+    lsq_sub_sweeps = SweepSet(lsq_sub_sweep_list)
+    all_sweeps = [lsq_supra_sweeps, lsq_sub_sweeps]
+    for sweepset in all_sweeps:
+        sweepset.align_to_start_of_epoch('stim')
+    
+    lsq_supra_dur = min_duration_of_sweeplist(lsq_supra_sweep_list)
+    lsq_sub_dur = min_duration_of_sweeplist(lsq_sub_sweep_list)
+    all_features = fv.extract_multipatch_feature_vectors(lsq_supra_sweeps, 0., lsq_supra_dur,
+                                                         lsq_sub_sweeps, 0., lsq_sub_dur)
+    return all_features
 
 def main(nwb_file, output_dir, project, **kwargs):
     nwb = MiesNwb(nwb_file)
