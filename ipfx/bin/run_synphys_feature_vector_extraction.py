@@ -9,6 +9,7 @@ import json
 import logging
 import traceback
 from collections import defaultdict
+from multiprocessing import Pool
 
 
 class SynPhysFeatureVectorSchema(ags.ArgSchema):
@@ -89,9 +90,10 @@ def mpsweep_from_recording(recording):
     sweep = miesnwb.contents[sweep_id][electrode.device_id]
     return MPSweep(sweep)
 
-def run_mpa_cell(cell):
+def run_mpa_cell(specimen_id):
     try:
-        specimen_id = mp_cell_id(cell)
+        # specimen_id = mp_cell_id(cell)
+        cell = cell_from_mpid(specimen_id)
         nwb = cell.experiment.data
         channel = cell.electrode.device_id
         sweeps_dict = sweeps_dict_from_cell(cell)
@@ -123,10 +125,14 @@ def run_mpa_cell(cell):
         return {"error": {"type": "processing", "details": traceback.format_exc(limit=1)}}
     return all_features
 
-def run_cells(cells_list, output_dir, project='mp_test'):
+def run_cells(specimen_ids, output_dir, project='mp_test', run_parallel=True):
+    # specimen_ids = [mp_cell_id(cell) for cell in cells_list]
+    if run_parallel:
+        pool = Pool()
+        results = pool.map(run_mpa_cell, specimen_ids)
+    else:
+        results = map(run_mpa_cell, specimen_ids)
 
-    specimen_ids = [mp_cell_id(cell) for cell in cells_list]
-    results = [run_mpa_cell(cell) for cell in cells_list]
     filtered_set = [(i, r) for i, r in zip(specimen_ids, results) if not "error" in r.keys()]
     error_set = [{"id": i, "error": d} for i, d in zip(specimen_ids, results) if "error" in d.keys()]
     if len(filtered_set) == 0:
