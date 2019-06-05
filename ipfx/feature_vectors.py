@@ -105,7 +105,8 @@ def extract_feature_vectors(data_set,
 def extract_multipatch_feature_vectors(lsq_supra_sweeps, lsq_supra_start, lsq_supra_end,
                                        lsq_sub_sweeps, lsq_sub_start, lsq_sub_end,
                                        target_sampling_rate=50000, ap_window_length=0.003):
-    lsq_supra_spx, lsq_supra_spfx = dsf.extractors_for_sweeps(lsq_supra_sweeps, start=lsq_supra_start, end=lsq_supra_end)
+    lsq_supra_spx, lsq_supra_spfx = dsf.extractors_for_sweeps(lsq_supra_sweeps, start=lsq_supra_start, end=lsq_supra_end, 
+        est_window=(0, 0.001))
     lsq_supra_an = spa.LongSquareAnalysis(lsq_supra_spx, lsq_supra_spfx, subthresh_min_amp=-100., require_subthreshold=False)
     lsq_supra_features = lsq_supra_an.analyze(lsq_supra_sweeps)
 
