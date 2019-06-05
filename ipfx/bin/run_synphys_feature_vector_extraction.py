@@ -7,6 +7,7 @@ import argschema as ags
 import os
 import json
 import logging
+import traceback
 from collections import defaultdict
 
 
@@ -62,28 +63,97 @@ def min_duration_of_sweeplist(sweep_list):
     else:
         return min(mpsweep.duration for mpsweep in sweep_list)
 
-def run_mpa_cell(cell, output_dir):
-    # MiesNwb object
-    nwb = cell.experiment.data
-    channel = cell.electrode.device_id
-    sweeps_dict = sweeps_dict_from_cell(cell)
+def mp_cell_id(cell):
+    """Get an id for an MP database cell object (combined timestamp and cell id).
+    """
+    cell_id = "{ts}_{ext_id}".format(ts=cell.experiment.acq_timestamp, ext_id=cell.ext_id)
+    return cell_id
 
-    supra_sweep_ids = sweeps_dict['If_Curve_DA_0']
-    sub_sweep_ids = sweeps_dict['TargetV_DA_0']
-    lsq_supra_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in supra_sweep_ids]
-    lsq_sub_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in sub_sweep_ids]
+def cell_from_mpid(mpid):
+    """Get an MP database cell object by its id (combined timestamp and cell id).
+    """
+    import multipatch_analysis.database as db
+    timestamp, ext_id = mpid.split('_')
+    timestamp = float(timestamp)
+    ext_id = int(ext_id)
+    experiment = db.experiment_from_timestamp(timestamp)
+    cell = experiment.cells[ext_id]
+    return cell
 
-    lsq_supra_sweeps = SweepSet(lsq_supra_sweep_list)
-    lsq_sub_sweeps = SweepSet(lsq_sub_sweep_list)
-    all_sweeps = [lsq_supra_sweeps, lsq_sub_sweeps]
-    for sweepset in all_sweeps:
-        sweepset.align_to_start_of_epoch('stim')
-    
-    lsq_supra_dur = min_duration_of_sweeplist(lsq_supra_sweep_list)
-    lsq_sub_dur = min_duration_of_sweeplist(lsq_sub_sweep_list)
-    all_features = fv.extract_multipatch_feature_vectors(lsq_supra_sweeps, 0., lsq_supra_dur,
+def mpsweep_from_recording(recording):
+    """Get an MPSweep object containing sweep data from a MP database recording object.
+    """
+    electrode = recording.electrode
+    miesnwb = electrode.experiment.data
+    sweep_id = recording.sync_rec.ext_id
+    sweep = miesnwb.contents[sweep_id][electrode.device_id]
+    return MPSweep(sweep)
+
+def run_mpa_cell(cell):
+    try:
+        specimen_id = mp_cell_id(cell)
+        nwb = cell.experiment.data
+        channel = cell.electrode.device_id
+        sweeps_dict = sweeps_dict_from_cell(cell)
+        supra_sweep_ids = sweeps_dict['If_Curve_DA_0']
+        sub_sweep_ids = sweeps_dict['TargetV_DA_0']
+        lsq_supra_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in supra_sweep_ids]
+        lsq_sub_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in sub_sweep_ids]
+
+        lsq_supra_sweeps = SweepSet(lsq_supra_sweep_list)
+        lsq_sub_sweeps = SweepSet(lsq_sub_sweep_list)
+        all_sweeps = [lsq_supra_sweeps, lsq_sub_sweeps]
+        for sweepset in all_sweeps:
+            sweepset.align_to_start_of_epoch('stim')
+        
+        lsq_supra_dur = min_duration_of_sweeplist(lsq_supra_sweep_list)
+        lsq_sub_dur = min_duration_of_sweeplist(lsq_sub_sweep_list)
+
+    except Exception as detail:
+        logging.warn("Exception when processing specimen {}".format(specimen_id))
+        logging.warn(detail)
+        return {"error": {"type": "dataset", "details": traceback.format_exc(limit=1)}}
+
+    try:
+        all_features = fv.extract_multipatch_feature_vectors(lsq_supra_sweeps, 0., lsq_supra_dur,
                                                          lsq_sub_sweeps, 0., lsq_sub_dur)
+    except Exception as detail:
+        logging.warn("Exception when processing specimen {}".format(specimen_id))
+        logging.warn(detail)
+        return {"error": {"type": "processing", "details": traceback.format_exc(limit=1)}}
     return all_features
+
+def run_cells(cells_list, output_dir, project='mp_test'):
+
+    specimen_ids = [mp_cell_id(cell) for cell in cells_list]
+    results = [run_mpa_cell(cell) for cell in cells_list]
+    filtered_set = [(i, r) for i, r in zip(specimen_ids, results) if not "error" in r.keys()]
+    error_set = [{"id": i, "error": d} for i, d in zip(specimen_ids, results) if "error" in d.keys()]
+    if len(filtered_set) == 0:
+        logging.info("No specimens had results")
+        return
+
+    with open(os.path.join(output_dir, "fv_errors_{:s}.json".format(project)), "w") as f:
+        json.dump(error_set, f, indent=4)
+
+    used_ids, results = zip(*filtered_set)
+    logging.info("Finished with {:d} processed specimens".format(len(used_ids)))
+
+    k_sizes = {}
+    for k in results[0].keys():
+        if k not in k_sizes and results[0][k] is not None:
+            k_sizes[k] = len(results[0][k])
+        data = np.array([r[k] if k in r else np.nan * np.zeros(k_sizes[k])
+                        for r in results])
+        if len(data.shape) == 1: # it'll be 1D if there's just one specimen
+            data = np.reshape(data, (1, -1))
+        if data.shape[0] < len(used_ids):
+            logging.warn("Missing data!")
+            missing = np.array([k not in r for r in results])
+            print k, np.array(used_ids)[missing]
+        np.save(os.path.join(output_dir, "fv_{:s}_{:s}.npy".format(k, project)), data)
+
+    np.save(os.path.join(output_dir, "fv_ids_{:s}.npy".format(project)), used_ids)
 
 def main(nwb_file, output_dir, project, **kwargs):
     nwb = MiesNwb(nwb_file)
