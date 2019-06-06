@@ -21,7 +21,7 @@ class SynPhysFeatureVectorSchema(ags.ArgSchema):
 class MPSweep(Sweep):
     """Adapter for neuroanalysis.Recording => ipfx.Sweep
     """
-    def __init__(self, rec):
+    def __init__(self, rec, test_pulse=True):
         pri = rec['primary']
         cmd = rec['command']
         t = pri.time_values
@@ -36,10 +36,8 @@ class MPSweep(Sweep):
                        clamp_mode=clamp_mode,
                        sampling_rate=srate,
                        sweep_number=sweep_num,
-                       epochs=None)
-        self.select_epoch('stim')
-        self.duration = self.t[-1] - self.t[0]
-        self.select_epoch('sweep')
+                       epochs=None,
+                       test_pulse=test_pulse)
 
 
 stim_list = [
@@ -58,11 +56,19 @@ def sweeps_dict_from_cell(cell):
                 sweeps_dict[name].append(recording.sync_rec.ext_id)
     return sweeps_dict
 
+def mpsweep_duration(mpsweep):
+    if mpsweep.select_epoch('stim'):
+        duration = mpsweep.t[-1] - mpsweep.t[0]
+        mpsweep.select_epoch('sweep')
+        return duration
+    else:
+        return None
+
 def min_duration_of_sweeplist(sweep_list):
     if len(sweep_list)==0:
         return 0
     else:
-        return min(mpsweep.duration for mpsweep in sweep_list)
+        return min(mpsweep_duration(mpsweep) for mpsweep in sweep_list)
 
 def mp_cell_id(cell):
     """Get an id for an MP database cell object (combined timestamp and cell id).
@@ -101,6 +107,10 @@ def run_mpa_cell(specimen_id):
         sub_sweep_ids = sweeps_dict['TargetV_DA_0']
         lsq_supra_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in supra_sweep_ids]
         lsq_sub_sweep_list = [MPSweep(nwb.contents[i][channel]) for i in sub_sweep_ids]
+        lsq_supra_sweep_list = [sweep for sweep in lsq_supra_sweep_list 
+            if 'stim' in sweep.epochs]
+        lsq_sub_sweep_list = [sweep for sweep in lsq_sub_sweep_list 
+            if 'stim' in sweep.epochs]
 
         lsq_supra_sweeps = SweepSet(lsq_supra_sweep_list)
         lsq_sub_sweeps = SweepSet(lsq_sub_sweep_list)
@@ -108,13 +118,14 @@ def run_mpa_cell(specimen_id):
         for sweepset in all_sweeps:
             sweepset.align_to_start_of_epoch('stim')
         
+        # We may not need this - do durations actually vary for a given cell?
         lsq_supra_dur = min_duration_of_sweeplist(lsq_supra_sweep_list)
         lsq_sub_dur = min_duration_of_sweeplist(lsq_sub_sweep_list)
 
     except Exception as detail:
         logging.warn("Exception when processing specimen {}".format(specimen_id))
         logging.warn(detail)
-        return {"error": {"type": "dataset", "details": traceback.format_exc(limit=1)}}
+        return {"error": {"type": "dataset", "details": traceback.format_exc(limit=None)}}
 
     try:
         all_features = fv.extract_multipatch_feature_vectors(lsq_supra_sweeps, 0., lsq_supra_dur,
@@ -122,7 +133,7 @@ def run_mpa_cell(specimen_id):
     except Exception as detail:
         logging.warn("Exception when processing specimen {}".format(specimen_id))
         logging.warn(detail)
-        return {"error": {"type": "processing", "details": traceback.format_exc(limit=1)}}
+        return {"error": {"type": "processing", "details": traceback.format_exc(limit=None)}}
     return all_features
 
 def run_cells(specimen_ids, output_dir, project='mp_test', run_parallel=True):
