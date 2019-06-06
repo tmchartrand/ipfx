@@ -14,7 +14,13 @@ from . import stimulus_protocol_analysis as spa
 from . import time_series_utils as tsu
 from . import error as er
 
-
+def filter_lsq_sweeps(sweep_set, lsq_start, lsq_end, extra_dur=0.2):
+    good_lsq_sweep_numbers = [n for n, s in enumerate(sweep_set.sweeps)
+                                  if s.t[-1] >= lsq_end + extra_dur 
+                                  and not np.all(s.v[tsu.find_time_index(s.t, lsq_end)-100:tsu.find_time_index(s.t, lsq_end)] == 0)]
+    sweep_set.sweeps = [sweep_set.sweeps[num] for num in good_lsq_sweep_numbers]
+    return sweep_set
+        
 def extract_feature_vectors(data_set,
                             ramp_sweep_numbers,
                             short_square_sweep_numbers,
@@ -44,10 +50,7 @@ def extract_feature_vectors(data_set,
         lsq_start, lsq_dur, _, _, _ = stf.get_stim_characteristics(check_lsq_sweeps.sweeps[0].i, check_lsq_sweeps.sweeps[0].t)
 
         # Check that all sweeps are long enough and not ended early
-        extra_dur = 0.2
-        good_lsq_sweep_numbers = [n for n, s in zip(long_square_sweep_numbers, check_lsq_sweeps.sweeps)
-                                  if s.t[-1] >= lsq_start + lsq_dur + extra_dur and not np.all(s.v[tsu.find_time_index(s.t, lsq_start + lsq_dur)-100:tsu.find_time_index(s.t, lsq_start + lsq_dur)] == 0)]
-        lsq_sweeps = data_set.sweep_set(good_lsq_sweep_numbers)
+        lsq_sweeps = filter_lsq_sweeps(check_lsq_sweeps, lsq_start, lsq_start + lsq_dur)
 
         lsq_spx, lsq_spfx = dsf.extractors_for_sweeps(lsq_sweeps,
                                                       start = lsq_start,
@@ -105,6 +108,9 @@ def extract_feature_vectors(data_set,
 def extract_multipatch_feature_vectors(lsq_supra_sweeps, lsq_supra_start, lsq_supra_end,
                                        lsq_sub_sweeps, lsq_sub_start, lsq_sub_end,
                                        target_sampling_rate=50000, ap_window_length=0.003):
+    # Check that all sweeps are long enough and not ended early
+    lsq_supra_sweeps = filter_lsq_sweeps(lsq_supra_sweeps, lsq_supra_start, lsq_supra_end)
+    lsq_sub_sweeps = filter_lsq_sweeps(lsq_sub_sweeps, lsq_sub_start, lsq_sub_end)
     lsq_supra_spx, lsq_supra_spfx = dsf.extractors_for_sweeps(lsq_supra_sweeps, start=lsq_supra_start, end=lsq_supra_end, 
         est_window=(0, 0.001))
     lsq_supra_an = spa.LongSquareAnalysis(lsq_supra_spx, lsq_supra_spfx, subthresh_min_amp=-100., require_subthreshold=False)
