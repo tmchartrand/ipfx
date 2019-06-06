@@ -2,7 +2,7 @@ import ipfx.epochs as ep
 
 
 class Sweep(object):
-    def __init__(self, t, v, i, clamp_mode, sampling_rate, sweep_number=None, epochs=None):
+    def __init__(self, t, v, i, clamp_mode, sampling_rate, sweep_number=None, epochs=None, test_pulse=True):
         self._t = t
         self._v = v
         self._i = i
@@ -24,7 +24,7 @@ class Sweep(object):
             self.response = self._i
             self.stimulus = self._v
 
-        self.detect_epochs()
+        self.detect_epochs(test_pulse=test_pulse)
 
     @property
     def t(self):
@@ -42,13 +42,19 @@ class Sweep(object):
         return self._i[start_idx:end_idx+1]
 
     def select_epoch(self, epoch_name):
-        self.selected_epoch_name = epoch_name
+        """Select epoch by name if it exists. Return True if successful, False if not.
+        """
+        if epoch_name in self.epochs:
+            self.selected_epoch_name = epoch_name
+            return True
+        else: 
+            return False
 
     def set_time_zero_to_index(self, time_step):
         dt = 1. / self.sampling_rate
         self._t = self._t - time_step*dt
 
-    def detect_epochs(self):
+    def detect_epochs(self, test_pulse=False):
         """
         Detect epochs if they are not provided in the constructor
 
@@ -59,11 +65,11 @@ class Sweep(object):
             "recording": ep.get_recording_epoch(self.response),
             "experiment": ep.get_experiment_epoch(self._i, self.sampling_rate),
             "test": ep.get_test_epoch(self._i),
-            "stim": ep.get_stim_epoch(self._i),
+            "stim": ep.get_stim_epoch(self._i, test_pulse=test_pulse),
         }
 
         for epoch_name, epoch_detector in epoch_detectors.items():
-            if epoch_name not in self.epochs:
+            if epoch_name not in self.epochs and epoch_detector is not None:
                 self.epochs[epoch_name] = epoch_detector
 
 
