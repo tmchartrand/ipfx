@@ -13,9 +13,12 @@ from multiprocessing import Pool
 
 
 class SynPhysFeatureVectorSchema(ags.ArgSchema):
-    nwb_file = ags.fields.InputFile(default="/allen/programs/celltypes/workgroups/ivscc/nathang/synphys_ephys/data/2018_11_06_140408-compressed.nwb")
-    output_dir = ags.fields.OutputDir(default="/allen/programs/celltypes/workgroups/ivscc/nathang/fv_output/")
-    project = ags.fields.String(default="SynPhys")
+    output_dir = ags.fields.OutputDir(default="output")
+    input = ags.fields.InputFile(default=None, allow_none=True)
+    project = ags.fields.String(default="")
+    sweep_qc_option = ags.fields.String(default=None, allow_none=True)
+    run_parallel = ags.fields.Boolean(default=True)
+    ap_window_length = ags.fields.Float(description="Duration after threshold for AP shape (s)", default=0.003)
 
 
 class MPSweep(Sweep):
@@ -96,7 +99,7 @@ def mpsweep_from_recording(recording):
     sweep = miesnwb.contents[sweep_id][electrode.device_id]
     return MPSweep(sweep)
 
-def run_mpa_cell(specimen_id):
+def run_mpa_cell(specimen_id, ap_window_length=0.003):
     try:
         # specimen_id = mp_cell_id(cell)
         cell = cell_from_mpid(specimen_id)
@@ -129,15 +132,16 @@ def run_mpa_cell(specimen_id):
 
     try:
         all_features = fv.extract_multipatch_feature_vectors(lsq_supra_sweeps, 0., lsq_supra_dur,
-                                                         lsq_sub_sweeps, 0., lsq_sub_dur)
+                                                         lsq_sub_sweeps, 0., lsq_sub_dur,
+                                                         ap_window_length=ap_window_length)
     except Exception as detail:
         logging.warn("Exception when processing specimen {}".format(specimen_id))
         logging.warn(detail)
         return {"error": {"type": "processing", "details": traceback.format_exc(limit=None)}}
     return all_features
 
-def run_cells(specimen_ids, output_dir, project='mp_test', run_parallel=True):
-    # specimen_ids = [mp_cell_id(cell) for cell in cells_list]
+def run_cells(specimen_ids=[], output_dir="", project='mp_test', run_parallel=True, ap_window_length=0.003, **kwargs):
+    #TODO: include query for ids by project
     if run_parallel:
         pool = Pool()
         results = pool.map(run_mpa_cell, specimen_ids)
@@ -172,69 +176,15 @@ def run_cells(specimen_ids, output_dir, project='mp_test', run_parallel=True):
 
     np.save(os.path.join(output_dir, "fv_ids_{:s}.npy".format(project)), used_ids)
 
-def main(nwb_file, output_dir, project, **kwargs):
-    nwb = MiesNwb(nwb_file)
-
-
-    # SPECIFICS FOR EXAMPLE NWB =========
-
-    # Only analyze one channel at a time
-    channel = 0
-
-    # We can work out code to automatically extract these based on stimulus names later.
-    if_sweep_inds = [39, 45]
-    targetv_sweep_inds = [15, 21]
-
-    # END SPECIFICS =====================
-
-
-    # Assemble all Recordings and convert to Sweeps
-    supra_sweep_ids = list(range(*if_sweep_inds))
-    sub_sweep_ids = list(range(*targetv_sweep_inds))
-
-    supra_recs = [nwb.contents[i][channel] for i in supra_sweep_ids]
-    sub_recs = [nwb.contents[i][channel] for i in sub_sweep_ids]
-
-    lsq_supra_sweep_list, lsq_supra_dur = recs_to_sweeps(supra_recs)
-    lsq_sub_sweep_list, lsq_sub_dur = recs_to_sweeps(sub_recs)
-    lsq_supra_sweeps = SweepSet(lsq_supra_sweep_list)
-    lsq_sub_sweeps = SweepSet(lsq_sub_sweep_list)
-
-    all_features = fv.extract_multipatch_feature_vectors(lsq_supra_sweeps, 0., lsq_supra_dur,
-                                                         lsq_sub_sweeps, 0., lsq_sub_dur)
-
-    specimen_ids = [0]
-    results = [all_features]
-
-    filtered_set = [(i, r) for i, r in zip(specimen_ids, results) if not "error" in r.keys()]
-    error_set = [{"id": i, "error": d} for i, d in zip(specimen_ids, results) if "error" in d.keys()]
-    if len(filtered_set) == 0:
-        logging.info("No specimens had results")
-        return
-
-    with open(os.path.join(output_dir, "fv_errors_{:s}.json".format(project)), "w") as f:
-        json.dump(error_set, f, indent=4)
-
-    used_ids, results = zip(*filtered_set)
-    logging.info("Finished with {:d} processed specimens".format(len(used_ids)))
-
-    k_sizes = {}
-    for k in results[0].keys():
-        if k not in k_sizes and results[0][k] is not None:
-            k_sizes[k] = len(results[0][k])
-        data = np.array([r[k] if k in r else np.nan * np.zeros(k_sizes[k])
-                        for r in results])
-        if len(data.shape) == 1: # it'll be 1D if there's just one specimen
-            data = np.reshape(data, (1, -1))
-        if data.shape[0] < len(used_ids):
-            logging.warn("Missing data!")
-            missing = np.array([k not in r for r in results])
-            print k, np.array(used_ids)[missing]
-        np.save(os.path.join(output_dir, "fv_{:s}_{:s}.npy".format(k, project)), data)
-
-    np.save(os.path.join(output_dir, "fv_ids_{:s}.npy".format(project)), used_ids)
-
-
-if __name__ == "__main__":
+def main():
     module = ags.ArgSchemaParser(schema_type=SynPhysFeatureVectorSchema)
-    main(**module.args)
+
+    if module.args["input"]: # input file should be list of IDs on each line
+        with open(module.args["input"], "r") as f:
+            ids = [line.strip("\n") for line in f]
+        run_cells(specimen_ids=ids, **module.args)
+    else:
+        run_cells(**module.args)
+
+
+if __name__ == "__main__": main()
