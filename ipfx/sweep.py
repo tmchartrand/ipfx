@@ -69,7 +69,7 @@ class Sweep(object):
         }
 
         for epoch_name, epoch_detector in epoch_detectors.items():
-            if epoch_name not in self.epochs and epoch_detector is not None:
+            if epoch_name not in self.epochs and epoch_detector[0] is not None:
                 self.epochs[epoch_name] = epoch_detector
 
 
