@@ -140,7 +140,7 @@ def get_nwb_path_from_lims(ephys_roi_result):
 
     result = query("""
     SELECT f.filename, f.storage_directory FROM well_known_files f
-    WHERE f.attachable_type = 'EphysRoiResult' AND f.attachable_id = %s AND f.well_known_file_type_id = 475137571
+    WHERE f.attachable_type = 'EphysRoiResult' AND f.attachable_id = %s AND f.well_known_file_type_id IN (475137571, 570280085)
     """ % (ephys_roi_result,))[0]
 
     if result:
