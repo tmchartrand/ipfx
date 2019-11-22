@@ -27,9 +27,9 @@ class FeatureCollectionParameters(ags.ArgSchema):
         default=None,
         allow_none=True
     )
-    cell_count_limit = ags.fields.Number(
+    cell_count_limit = ags.fields.Integer(
         description="Limit to number of cells evaluated",
-        default=float('inf')
+        default=-1
     )
     sweep_qc_option = ags.fields.String(
         description=("Sweep-level QC option - "
@@ -46,7 +46,7 @@ class FeatureCollectionParameters(ags.ArgSchema):
         default=False)
     run_parallel = ags.fields.Boolean(
         description="whether to use multiprocessing",
-        default=False)
+        default=True)
     output_file = ags.fields.OutputFile(
         description="output file path",
         default=None,
