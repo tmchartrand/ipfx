@@ -1,6 +1,8 @@
 from ipfx.hbg_dataset import HBGDataSet
 from ipfx.aibs_data_set import AibsDataSet
 from ipfx.nwb_reader import get_nwb_version
+import allensdk.core.json_utilities as ju
+from ipfx.stimulus import StimulusOntology
 
 
 def create_data_set(sweep_info=None, nwb_file=None, ontology=None, api_sweeps=True, h5_file=None,validate_stim=True):
@@ -14,6 +16,8 @@ def create_data_set(sweep_info=None, nwb_file=None, ontology=None, api_sweeps=Tr
     -------
     EphysDataSet derived object
     """
+    ontology = ontology or StimulusOntology(
+        ju.read(StimulusOntology.DEFAULT_STIMULUS_ONTOLOGY_FILE))
 
     if nwb_file is None:
         raise ValueError("Can not decide which EphysDataSet class to create without nwb_file")
