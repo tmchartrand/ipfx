@@ -62,13 +62,13 @@ def chirp_sweep_features(sweep, method_params={}):
     z_max = amp[i_max]
     i_cutoff = np.argmin(abs(amp - z_max/np.sqrt(2)))
     features = {
-        "z_low": amp[0],
-        "z_high": amp[-1],
-        "z_max": z_max,
         "peak_ratio": amp[i_max]/amp[0],
         "peak_freq": freq[i_max],
         "3db_freq": freq[i_cutoff],
-        "phase_max": np.max(phase),
+        "z_low": amp[0],
+        "z_high": amp[-1],
+        "z_peak": z_max,
+        "phase_peak": phase[i_max],
         "phase_low": phase[0],
         "phase_high": phase[-1]
     }
