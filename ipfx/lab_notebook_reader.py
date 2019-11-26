@@ -1,11 +1,13 @@
 import h5py
 import math
+import logging
 from ipfx.py2to3 import to_str
 
 
 class LabNotebookReader(object):
     def __init__(self):
         self.register_enabled_names()
+        self.empty = True
 
     # mapping of notebook keys to keys representing if that value is
     #   enabled
@@ -78,6 +80,8 @@ class LabNotebookReader(object):
     #   the specified sweep, or the default value if no value is found
     #   (NaN and empty strings are considered to be non-values)
     def get_value(self, name, sweep_num, default_val):
+        if self.empty:
+            return default_val
         # name_number has 3 dimensions -- the first has shape
         #   (#fields * 9) and stores the key names. the second looks
         #   to store units for those keys. The third is numeric text
@@ -133,6 +137,7 @@ class LabNotebookReaderIvscc(LabNotebookReader):
         self.colname_text = notebook["TextDocKeyWave/txtDocKeyWave"][()]
         self.val_text = notebook["textDocumentation/txtDocWave"][()]
         h5.close()
+        self.empty = False
 
 
 
@@ -162,6 +167,7 @@ class LabNotebookReaderIgorNwb(LabNotebookReader):
         h5.close()
         #
         self.register_enabled_names()
+        self.empty = False
 
 
 
@@ -175,8 +181,9 @@ def create_lab_notebook_reader(nwb_file, h5_file=None):
 
     if version == "IgorNwb":
         return LabNotebookReaderIgorNwb(nwb_file)
-    elif version == "IgorH5":
+    elif version == "IgorH5" and h5_file is not None:
         return LabNotebookReaderIvscc(nwb_file, h5_file)
     else:
-        Exception("Unable to determine NWB input type")
+        logging.warning("Unable to load lab notebook data.")
+        return LabNotebookReader()
 
