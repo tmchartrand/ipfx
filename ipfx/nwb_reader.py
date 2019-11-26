@@ -143,7 +143,8 @@ class NwbReader(object):
             if "source" in timeseries:
                 real_sweep_number = read_sweep_from_source(timeseries["source"][()])
             elif "source" in timeseries.attrs:
-                real_sweep_number = read_sweep_from_source(timeseries.attrs["source"])
+                source = to_str(timeseries.attrs["source"])
+                real_sweep_number = read_sweep_from_source(source)
             elif "sweep_number" in timeseries.attrs:
                 real_sweep_number = timeseries.attrs["sweep_number"]
 
@@ -605,7 +606,7 @@ class NwbMiesReader(NwbReader):
 
 def get_nwb_version(nwb_file):
     """
-    Return a dict with `major` and `full` NWB version as read from the NWB file.
+    Return tr dict with `major` and `full` NWB version as read from the NWB file.
     """
 
     with h5py.File(nwb_file, 'r') as f:
