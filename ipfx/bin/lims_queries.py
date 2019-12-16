@@ -1,6 +1,7 @@
 import os
 import logging
 import pg8000
+from pathlib import Path
 from ipfx.py2to3 import to_str
 
 USER = "limsreader"
@@ -69,7 +70,7 @@ def get_input_nwb_file(specimen_id):
 
     nwb_file_name  = res['nwb_file']
 
-    return nwb_file_name
+    return fix_network_path(nwb_file_name)
 
 
 def get_input_h5_file(specimen_id):
@@ -83,7 +84,7 @@ def get_input_h5_file(specimen_id):
     and wkf.well_known_file_type_id = 306905526
     """ % specimen_id)
 
-    h5_file_name = os.path.join(h5_res[0]['storage_directory'], h5_res[0]['filename']) if len(h5_res) else None
+    h5_file_name = fix_network_path(os.path.join(h5_res[0]['storage_directory'], h5_res[0]['filename'])) if len(h5_res) else None
 
     return h5_file_name
 
@@ -165,11 +166,16 @@ def get_igorh5_path_from_lims(ephys_roi_result):
 
     if result:
         h5_path = result["storage_directory"] + result["filename"]
-        return h5_path
+        return fix_network_path(h5_path)
     else:
         logging.info("Cannot find Igor H5 file")
         return None
 
+def fix_network_path(lims_path):
+    # Need to have double slash for network drive
+    if not lims_path.startswith('//'):
+        lims_path = '/' + lims_path
+    return Path(lims_path)
 
 def project_specimen_ids(project, passed_only=True):
 
