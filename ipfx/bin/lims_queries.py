@@ -146,7 +146,7 @@ def get_nwb_path_from_lims(ephys_roi_result):
 
     if result:
         nwb_path = result["storage_directory"] + result["filename"]
-        return nwb_path
+        return fix_network_path(nwb_path)
     else:
         logging.info("Cannot find NWB file")
         return None
@@ -171,11 +171,6 @@ def get_igorh5_path_from_lims(ephys_roi_result):
         logging.info("Cannot find Igor H5 file")
         return None
 
-def fix_network_path(lims_path):
-    # Need to have double slash for network drive
-    if not lims_path.startswith('//'):
-        lims_path = '/' + lims_path
-    return str(Path(lims_path))
 
 def project_specimen_ids(project, passed_only=True):
 
