@@ -187,3 +187,10 @@ def project_specimen_ids(project, passed_only=True):
     results = query(SQL)
     sp_ids = [d["id"] for d in results]
     return sp_ids
+
+    
+def fix_network_path(lims_path):
+    # Need to have double slash for network drive
+    if not lims_path.startswith('//'):
+        lims_path = '/' + lims_path
+    return str(Path(lims_path))
